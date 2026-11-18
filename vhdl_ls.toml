@@ -1,0 +1,15 @@
+# Definimos el estándar más cercano al estricto VHDL-87 que usa tu cátedra
+standard = "1993"
+
+# Forzamos que el autocompletado te sugiera los nombres en PascalCase
+# (ej: ShiftKeyRegister en lugar de shiftkeyregister)
+preferred_case = "pascal"
+
+# Configuramos la biblioteca por defecto, esquivando la palabra prohibida "work"
+[libraries.defaultlib]
+files = ["*.vhd"]
+
+# Desactivamos esta regla de linting porque en VHDL-87 es muy común
+# declarar cosas que el linter moderno considera "innecesarias"
+[lint]
+unnecessary_work_library = false
