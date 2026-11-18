@@ -13,6 +13,7 @@
 -- Pipelining: Determina si la CPU incluida en la PC simulada presentará (valor "true")
 -- o no (valor "false") una segmentación en su cauce. Naturalmente debería esperarse una
 -- notoria mejora en el rendimiento de un procesador segmentado respecto a uno secuencial.
+-- Forwarding: Habilita el adelantamiento ALU-ALU con segmentación activa.
 -- Cores: Esta funcionalidad aún no se encuentra implementada, por lo que el valor asignado
 -- a este parámetro resulta irrelevante. No obstante, cabe mencionar que aquí se estaría
 -- definiendo la cantidad de núcleos que posee la arquitectura multi-core.
@@ -41,7 +42,8 @@ entity usuario is
 	generic (
 		ProgName	: STRING := "nop_0.asm";
 		Pipelining	: BOOLEAN := true;
-		Cores 		: INTEGER := 1);  	
+		Cores 		: INTEGER := 1;
+		Forwarding		: BOOLEAN := false);  	
 			
 end usuario;
 
@@ -52,7 +54,8 @@ architecture USUARIO_ARCHITECTURE of usuario is
 		generic (
 			ProgName		: STRING;
 			Pipelining 		: BOOLEAN;
-			Cores 			: INTEGER);
+			Cores 			: INTEGER;
+			Forwarding		: BOOLEAN := false);
 		port (
 			DoneCompUser	: out std_logic;
 			DoneCpuUser		: out std_logic;
@@ -76,6 +79,7 @@ begin
 		generic map (
 			ProgName 		=> ProgName,
 			Pipelining 		=> Pipelining,
+			Forwarding		=> Forwarding,
 			Cores 			=> Cores
 		)
 		port map ( 
@@ -87,16 +91,23 @@ begin
 	-- Add your stimulus here ...
 	
 	Main: PROCESS
+	
+	VARIABLE InicioEnsamblaje: time;
+	VARIABLE FinEnsamblaje: time;
 
 	BEGIN 
 		ReadyUser <= '0';
 		WAIT FOR 1 ns;
+		InicioEnsamblaje := now;
 		ReadyUser <= '1';
 		WAIT UNTIL rising_edge(DoneCompUser);
-		report "El programa 'Assembler/" & ProgName & "' ha sido ensamblado exitosamente"
+		FinEnsamblaje := now;
+		report "El programa 'Assembler/" & ProgName & "' ha sido ensamblado exitosamente en "
+			& time'image(FinEnsamblaje - InicioEnsamblaje)
 		severity WARNING;
 		WAIT UNTIL rising_edge(DoneCpuUser);
-		report "El programa 'Assembler/" & ProgName & "' ha sido ejecutado exitosamente"
+		report "El programa 'Assembler/" & ProgName & "' ha sido ejecutado exitosamente en "
+			& time'image(now - FinEnsamblaje)
 		severity WARNING;
 		WAIT;
 	END PROCESS Main;

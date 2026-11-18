@@ -45,6 +45,10 @@ entity atascos is
 		DoneWAW				: inout	std_logic;
 		StallWAW			: inout std_logic;
 		StallRAW			: inout std_logic;
+		ForwardConsumer		: in  std_logic;
+		ForwardOtherReg		: in  std_logic_vector(7 downto 0);
+		ForwardProducer		: in  forward_producer_record;
+		ForwardRead			: out forward_producer_record;
 		EnableEXALU			: in 	std_logic;
 		EnableEXFPU			: in 	std_logic;
 		PipeFP_4			: in  	std_logic;
@@ -94,6 +98,10 @@ architecture ATASCOS_ARCHITECTURE of atascos is
 			DoneWAW				: inout	std_logic;
 			StallWAW			: inout std_logic;
 			StallRAW			: inout std_logic;
+			ForwardConsumer		: in  std_logic;
+			ForwardOtherReg		: in  std_logic_vector(7 downto 0);
+			ForwardProducer		: in  forward_producer_record;
+			ForwardRead			: out forward_producer_record;
 			IdRegID				: in    std_logic_vector(7 downto 0);
 			IdInstIncWrPend		: in	std_logic_vector(7 downto 0);
 			IdRegIncWrPend		: in    std_logic_vector(7 downto 0);
@@ -142,6 +150,10 @@ begin
 			DoneWAW				=> DoneWAW,
 			StallWAW			=> StallWAW,
 			StallRAW			=> StallRAW,
+			ForwardConsumer		=> ForwardConsumer,
+			ForwardOtherReg		=> ForwardOtherReg,
+			ForwardProducer		=> ForwardProducer,
+			ForwardRead		=> ForwardRead,
 			IdRegID				=> IdRegID,
 			IdInstIncWrPend		=> IdInstIncWrPend,
 			IdRegIncWrPend		=> IdRegIncWrPend,

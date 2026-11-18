@@ -26,7 +26,8 @@ use std.TEXTIO.all;
 entity cpu is
 	
 	generic (
-		Pipelining	: BOOLEAN); 
+		Pipelining	: BOOLEAN;
+		Forwarding		: BOOLEAN := false); 
 		
 	port (
 		DoneCpuUser				: out std_logic;
@@ -78,7 +79,8 @@ architecture CPU_ARCHITECTURE of cpu is
 	
 	component etapas 
 		generic (
-			Pipelining				: BOOLEAN);
+			Pipelining				: BOOLEAN;
+			Forwarding		: BOOLEAN := false);
 		port (
 			StallHLT				: out	std_logic;
 			StopInit				: out   std_logic;
@@ -144,6 +146,10 @@ architecture CPU_ARCHITECTURE of cpu is
 			InstDataBusInCpu		: in    std_logic_vector(31 downto 0);
 			StallSTR				: in  	std_logic;
 			StallRAW				: in    std_logic;
+			ForwardConsumer			: out std_logic;
+			ForwardOtherReg		: out std_logic_vector(7 downto 0);
+			ForwardProducer			: out forward_producer_record;
+			ForwardRead				: in  forward_producer_record;
 			StallWAWAux				: in 	std_logic;
 			WbRegDoneWAW			: in 	writeback_record;
 			DoneWAW					: in	std_logic;
@@ -186,6 +192,10 @@ architecture CPU_ARCHITECTURE of cpu is
 			DoneWAW				: inout	std_logic;
 			StallWAW			: inout std_logic;
 			StallRAW			: inout std_logic;
+			ForwardConsumer		: in std_logic;
+			ForwardOtherReg		: in std_logic_vector(7 downto 0);
+			ForwardProducer		: in forward_producer_record;
+			ForwardRead			: out forward_producer_record;
 			EnableEXALU			: in 	std_logic;
 			EnableEXFPU			: in 	std_logic;
 			PipeFP_4			: in  	std_logic;
@@ -291,6 +301,10 @@ architecture CPU_ARCHITECTURE of cpu is
 	SIGNAL StallHLT:			std_logic;
 	SIGNAL StallSTR:			std_logic;
 	SIGNAL StallRAW: 			std_logic;
+	SIGNAL ForwardConsumer:	std_logic;
+	SIGNAL ForwardOtherReg:	std_logic_vector(7 downto 0);
+	SIGNAL ForwardProducer:	forward_producer_record;
+	SIGNAL ForwardRead:		forward_producer_record;
 	SIGNAL StallWAWAux: 		std_logic;
 	SIGNAL WbRegDoneWAW: 		writeback_record;
 	SIGNAL DoneWAW: 			std_logic;
@@ -382,7 +396,8 @@ begin
 			
 	UUT2: etapas
 		generic map (
-			Pipelining				=> Pipelining)
+			Pipelining				=> Pipelining,
+			Forwarding		=> Forwarding)
 		port map (
 			StallHLT				=> StallHLT,
 			StopInit				=> StopInit,
@@ -448,6 +463,10 @@ begin
 			InstDataBusInCpu		=> InstDataBusInCpu,
 			StallSTR				=> StallSTR,
 			StallRAW				=> StallRAW,
+			ForwardConsumer		=> ForwardConsumer,
+			ForwardOtherReg		=> ForwardOtherReg,
+			ForwardProducer		=> ForwardProducer,
+			ForwardRead		=> ForwardRead,
 			StallWAWAux				=> StallWAWAux,
 			WbRegDoneWAW			=> WbRegDoneWAW,
 			DoneWAW					=> DoneWAW,
@@ -488,6 +507,10 @@ begin
 			DoneWAW				=> DoneWAW,
 			StallWAW			=> StallWAW,
 			StallRAW			=> StallRAW,
+			ForwardConsumer		=> ForwardConsumer,
+			ForwardOtherReg		=> ForwardOtherReg,
+			ForwardProducer		=> ForwardProducer,
+			ForwardRead		=> ForwardRead,
 			EnableEXALU			=> EnableEXALU,
 			EnableEXFPU			=> EnableEXFPU,
 			PipeFP_4			=> PipeFP_4,

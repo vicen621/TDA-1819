@@ -59,6 +59,15 @@ PACKAGE tipos_cpu is
 		package2: std_logic_vector(31 downto 0);
 	END RECORD;
 	
+	TYPE forward_producer_record IS RECORD
+		valid: std_logic;
+		reg_id: std_logic_vector(7 downto 0);
+		instruction_id: std_logic_vector(7 downto 0);
+	END RECORD;
+
+	CONSTANT NO_FORWARD_PRODUCER: forward_producer_record :=
+		(valid => '0', reg_id => (others => '0'), instruction_id => (others => '0'));
+
 	TYPE execute_record IS RECORD
 		empty: std_logic;
 		op: std_logic_vector(7 downto 0);
@@ -67,6 +76,10 @@ PACKAGE tipos_cpu is
 		op1: std_logic_vector(31 downto 0);
 		op2: std_logic_vector(31 downto 0);
 		address: std_logic_vector(15 downto 0);
+		forward_producer: forward_producer_record;
+		forward_op1: std_logic;
+		forward_op2: std_logic;
+		forward_from: std_logic_vector(7 downto 0);
 	END RECORD;
 	
 	TYPE memaccess_data IS RECORD

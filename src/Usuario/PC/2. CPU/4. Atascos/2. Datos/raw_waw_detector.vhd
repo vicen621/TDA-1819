@@ -123,6 +123,10 @@ entity raw_waw_detector is
 		DoneWAW				: inout	std_logic;
 		StallWAW			: inout std_logic;
 		StallRAW			: inout std_logic;
+		ForwardConsumer		: in  std_logic;
+		ForwardOtherReg		: in  std_logic_vector(7 downto 0);
+		ForwardProducer		: in  forward_producer_record;
+		ForwardRead			: out forward_producer_record;
 		IdRegID				: in    std_logic_vector(7 downto 0);
 		IdInstIncWrPend		: in	std_logic_vector(7 downto 0);
 		IdRegIncWrPend		: in    std_logic_vector(7 downto 0);
@@ -211,89 +215,47 @@ begin
 		WbRegWAW.data.decode <= "ZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ";
 	END InitializeWbRegWAW;
 	
-	PROCEDURE CheckRAW IS
-	
+	IMPURE FUNCTION HasIntegerWritePending(
+		CONSTANT RegId: IN std_logic_vector(7 downto 0)) RETURN BOOLEAN IS
 	BEGIN
+		CASE to_integer(unsigned(RegId)) IS
+			WHEN ID_R0 => return R0_WrPending > 0;
+			WHEN ID_R1 => return R1_WrPending > 0;
+			WHEN ID_R2 => return R2_WrPending > 0;
+			WHEN ID_R3 => return R3_WrPending > 0;
+			WHEN ID_R4 => return R4_WrPending > 0;
+			WHEN ID_R5 => return R5_WrPending > 0;
+			WHEN ID_R6 => return R6_WrPending > 0;
+			WHEN ID_R7 => return R7_WrPending > 0;
+			WHEN ID_R8 => return R8_WrPending > 0;
+			WHEN ID_R9 => return R9_WrPending > 0;
+			WHEN ID_R10 => return R10_WrPending > 0;
+			WHEN ID_R11 => return R11_WrPending > 0;
+			WHEN ID_R12 => return R12_WrPending > 0;
+			WHEN ID_R13 => return R13_WrPending > 0;
+			WHEN ID_R14 => return R14_WrPending > 0;
+			WHEN ID_R15 => return R15_WrPending > 0;
+			WHEN OTHERS => return false;
+		END CASE;
+	END HasIntegerWritePending;
+
+	PROCEDURE CheckRAW IS
+
+	BEGIN
+		ForwardRead <= NO_FORWARD_PRODUCER;
+		-- Si el otro operando aún debe esperar, se aplica el RAW original
+		-- a la instrucción entera. Ambos operandos pueden usar el mismo resultado.
+		if (ForwardConsumer = '1' and ForwardProducer.valid = '1'
+			and ForwardProducer.reg_id = IdRegID
+			and (ForwardOtherReg = IdRegID or not HasIntegerWritePending(ForwardOtherReg))) then
+			ForwardRead <= ForwardProducer;
+			return;
+		end if;
 		CASE to_integer(unsigned(IdRegID)) IS
-			WHEN ID_R0 =>
-				if (R0_WrPending > 0) then
+			WHEN ID_R0 to ID_R15 =>
+				if (HasIntegerWritePending(IdRegID)) then
 					StallRAW <= '1';
 					IdRegRAW <= IdRegID;
-				end if;
-			WHEN ID_R1 =>
-				if (R1_WrPending > 0) then
-					StallRAW <= '1';
-					IdRegRAW <= IdRegID;
-				end if;
-			WHEN ID_R2 =>
-				if (R2_WrPending > 0) then
-					StallRAW <= '1';
-					IdRegRAW <= IdRegID;
-				end if;
-			WHEN ID_R3 =>
-				if (R3_WrPending > 0) then
-					StallRAW <= '1';
-					IdRegRAW <= IdRegID;
-				end if;
-			WHEN ID_R4 =>
-				if (R4_WrPending > 0) then
-					StallRAW <= '1';
-					IdRegRAW <= IdRegID;
-				end if;
-			WHEN ID_R5 =>
-				if (R5_WrPending > 0) then
-					StallRAW <= '1';
-					IdRegRAW <= IdRegID;
-				end if;
-			WHEN ID_R6 =>
-				if (R6_WrPending > 0) then
-					StallRAW <= '1';
-					IdRegRAW <= IdRegID;
-				end if;
-			WHEN ID_R7 =>
-				if (R7_WrPending > 0) then
-					StallRAW <= '1';
-					IdRegRAW <= IdRegID;
-				end if;
-			WHEN ID_R8 =>
-				if (R8_WrPending > 0) then
-					StallRAW <= '1';
-					IdRegRAW <= IdRegID;
-				end if;
-			WHEN ID_R9 =>
-				if (R9_WrPending > 0) then
-					StallRAW <= '1';
-					IdRegRAW <= IdRegID;
-				end if;
-			WHEN ID_R10 =>
-				if (R10_WrPending > 0) then
-					StallRAW <= '1';
-					IdRegRAW <= IdRegID;
-				end if;
-			WHEN ID_R11 =>
-				if (R11_WrPending > 0) then
-					StallRAW <= '1';
-					IdRegRAW <= IdRegID;
-				end if;
-			WHEN ID_R12 =>
-				if (R12_WrPending > 0) then
-					StallRAW <= '1';
-					IdRegRAW <= IdRegID;
-				end if;
-			WHEN ID_R13 =>
-				if (R13_WrPending > 0) then
-					StallRAW <= '1';
-					IdRegRAW <= IdRegID;
-				end if;
-			WHEN ID_R14 =>
-				if (R14_WrPending > 0) then
-					StallRAW <= '1';
-					IdRegRAW <= IdRegID;				  
-				end if;
-			WHEN ID_R15 =>
-				if (R15_WrPending > 0) then
-					StallRAW <= '1';
-					IdRegRAW <= IdRegID; 
 				end if;
 			WHEN ID_F0 =>
 				if (F0_WrPending > 0) then
@@ -1030,6 +992,7 @@ begin
 		if (First) then
 			First := false;
 			StallRAW <= '0';
+			ForwardRead <= NO_FORWARD_PRODUCER;
 			StallWAW <= '0';
 			DoneWAW <= '0';
 			InitializeWbRegWAW;

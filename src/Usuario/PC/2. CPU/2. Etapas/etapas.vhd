@@ -27,7 +27,8 @@ use std.TEXTIO.all;
 entity etapas is	  
 	
 	generic (
-		Pipelining	: BOOLEAN);
+		Pipelining	: BOOLEAN;
+		Forwarding			: BOOLEAN := false);
 		
 	port (
 		StallHLT				: out	std_logic;
@@ -47,6 +48,7 @@ entity etapas is
 		DataRegInEXALU			: out 	std_logic_vector(31 downto 0);
 		DataRegInEXFPU			: out 	std_logic_vector(31 downto 0);
 		DataEXtoWB				: out   std_logic_vector(31 downto 0);
+		ForwardProducer		: out forward_producer_record;
 		DataMAtoWB				: out   std_logic_vector(31 downto 0);
 		DataRegInIF				: out   std_logic_vector(31 downto 0);
 		WbRegCheckWAW			: out 	writeback_record;
@@ -94,6 +96,9 @@ entity etapas is
 		InstDataBusInCpu		: in    std_logic_vector(31 downto 0);
 		StallSTR				: in  	std_logic;
 		StallRAW				: in    std_logic;
+		ForwardConsumer		: out std_logic;
+		ForwardOtherReg		: out std_logic_vector(7 downto 0);
+		ForwardRead			: in  forward_producer_record;
 		StallWAWAux				: in 	std_logic;
 		WbRegDoneWAW			: in 	writeback_record;
 		DoneWAW					: in	std_logic;
@@ -136,7 +141,8 @@ architecture ETAPAS_ARCHITECTURE of etapas is
 	
 	component decode
 		generic (
-			Pipelining			: BOOLEAN);
+			Pipelining			: BOOLEAN;
+			Forwarding			: BOOLEAN := false);
 		port (
 			StallHLT			: out	std_logic;
 			StopInit			: out   std_logic;
@@ -158,6 +164,9 @@ architecture ETAPAS_ARCHITECTURE of etapas is
 			StallBrEX			: inout std_logic;
 			StallSTR			: in	std_logic;
 			StallRAW			: in    std_logic;
+			ForwardConsumer		: out std_logic;
+			ForwardOtherReg		: out std_logic_vector(7 downto 0);
+			ForwardRead			: in  forward_producer_record;
 			StallWAWAux			: in	std_logic;
 			BranchEXALUtoSM		: in    state_branch;
 			EXFPUPending		: in	std_logic;
@@ -178,6 +187,7 @@ architecture ETAPAS_ARCHITECTURE of etapas is
 			EnableRegEXALUIP	: out 	std_logic;
 			EnableDecFPWrPend	: out 	std_logic;
 			DataEXtoWB			: out 	std_logic_vector(31 downto 0);
+			ForwardProducer		: out forward_producer_record;
 			EnableCheckSTRM		: out 	std_logic;
 			EXFPUPending		: out	std_logic;
 			EnableEXALU			: inout std_logic;
@@ -265,7 +275,8 @@ begin
 
 	UUT2: decode
 		generic map (
-			Pipelining			=> Pipelining)
+			Pipelining			=> Pipelining,
+			Forwarding		=> Forwarding)
 		port map (
 			StallHLT			=> StallHLT,
 			StopInit			=> StopInit,
@@ -287,6 +298,9 @@ begin
 			StallBrEX			=> StallBrEX,
 			StallSTR			=> StallSTR,
 			StallRAW			=> StallRAW,
+			ForwardConsumer		=> ForwardConsumer,
+			ForwardOtherReg		=> ForwardOtherReg,
+			ForwardRead		=> ForwardRead,
 			StallWAWAux			=> StallWAWAux,
 			BranchEXALUtoSM		=> BranchEXALUtoSM, 
 			EXFPUPending		=> EXFPUPending,
@@ -306,6 +320,7 @@ begin
 			EnableRegEXALUIP	=> EnableRegEXALUIP,
 			EnableDecFPWrPend	=> EnableDecFPWrPend,
 			DataEXtoWB			=> DataEXtoWB,
+			ForwardProducer		=> ForwardProducer,
 			EnableCheckSTRM		=> EnableCheckSTRM,
 			EXFPUPending		=> EXFPUPending,
 			EnableEXALU			=> EnableEXALU,

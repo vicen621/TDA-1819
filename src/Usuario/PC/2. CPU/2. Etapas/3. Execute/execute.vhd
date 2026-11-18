@@ -67,6 +67,7 @@ entity execute is
 		EnableRegEXALUIP	: out 	std_logic;
 		EnableDecFPWrPend	: out 	std_logic;
 		DataEXtoWB			: out 	std_logic_vector(31 downto 0);
+		ForwardProducer		: out forward_producer_record;
 		EnableCheckSTRM		: out 	std_logic;
 		EXFPUPending		: out	std_logic;
 		EnableEXALU			: inout std_logic;
@@ -200,6 +201,9 @@ begin
 	
 	VARIABLE First: BOOLEAN := true;
 	VARIABLE Empty: STD_LOGIC;
+	VARIABLE ALUInput: execute_record;
+	VARIABLE LastALUProducer: forward_producer_record := NO_FORWARD_PRODUCER;
+	VARIABLE LastALUResult: std_logic_vector(31 downto 0);
 	VARIABLE Op: INTEGER;			 
 	VARIABLE Fp: STD_LOGIC;
 	VARIABLE wasSTR: BOOLEAN := false;
@@ -214,6 +218,7 @@ begin
 			EnableDecFPWrPend <= '0'; 
 			EnableEXALU <= '0'; 
 			EnableEXFPU <= '0';
+			ForwardProducer <= NO_FORWARD_PRODUCER;
 			InitializeAllIDtoEX;
 			WAIT FOR 1 ns;
 		end if;
@@ -258,6 +263,7 @@ begin
 			EnableDecFPWrPend <= '0';
 		end if;	
 		WAIT UNTIL falling_edge(EnableEX);
+		ForwardProducer <= NO_FORWARD_PRODUCER;
 		InitializeIDtoEX;
 		Empty := IDtoEX.empty;
 		if (Empty = '0') then
@@ -265,7 +271,22 @@ begin
 			if (not wasSTRW) then
 				if ((Fp = '0') or (Fp = 'Z')) then
 					if (StallSTR = '0') then
-						IDtoEXALU <= IDtoEX;
+						ALUInput := IDtoEX;
+						if (ALUInput.forward_op1 = '1' or ALUInput.forward_op2 = '1') then
+							assert LastALUProducer.valid = '1'
+								and LastALUProducer.instruction_id = ALUInput.forward_from
+								report "Forwarding ALU-ALU: resultado del productor no disponible"
+								severity FAILURE;
+							if (ALUInput.forward_op1 = '1') then
+								ALUInput.op1 := LastALUResult;
+							end if;
+							if (ALUInput.forward_op2 = '1') then
+								ALUInput.op2 := LastALUResult;
+							end if;
+						end if;
+						IDtoEXALU <= ALUInput;
+						-- Decode identifica esta productora en el mismo ciclo.
+						ForwardProducer <= ALUInput.forward_producer;
 						EnableEXALU <= '0';
 						--WAIT FOR 1 ns;
 					end if;
@@ -307,6 +328,11 @@ begin
 			if (Op /= EX_NULL) then
 				WAIT UNTIL (DoneEXALU = '1');
 				DataEXtoWB <= DataEXALUtoWB;
+				-- Guardar el resultado antes de aceptar la siguiente instrucción.
+				LastALUProducer := IDtoEXALU.forward_producer;
+				if (LastALUProducer.valid = '1') then
+					LastALUResult := DataEXALUtoWB;
+				end if;
 			end if;
 		end if;
 		if (EnableEXFPU = '0') then

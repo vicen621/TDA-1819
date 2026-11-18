@@ -52,7 +52,8 @@ use std.TEXTIO.all;
 entity decode is  
 	
 	generic (
-		Pipelining	: BOOLEAN);
+		Pipelining	: BOOLEAN;
+		Forwarding			: BOOLEAN := false);
 
     port (
 		StallHLT			: out	std_logic;
@@ -75,6 +76,9 @@ entity decode is
 		StallBrEX			: inout std_logic;
 		StallSTR			: in	std_logic;
 		StallRAW			: in    std_logic;
+		ForwardConsumer		: out std_logic;
+		ForwardOtherReg		: out std_logic_vector(7 downto 0);
+		ForwardRead			: in  forward_producer_record;
 		StallWAWAux			: in	std_logic;
 		BranchEXALUtoSM		: in    state_branch;
 		EXFPUPending		: in	std_logic;
@@ -111,6 +115,12 @@ begin
 		IDtoEX.op1 <= "ZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ";
 		IDtoEX.op2 <= "ZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ";
 		IDtoEX.address <= "ZZZZZZZZZZZZZZZZ";
+		IDtoEX.forward_producer <= NO_FORWARD_PRODUCER;
+		IDtoEX.forward_op1 <= '0';
+		IDtoEX.forward_op2 <= '0';
+		IDtoEX.forward_from <= (others => '0');
+		ForwardConsumer <= '0';
+		ForwardOtherReg <= std_logic_vector(to_unsigned(ID_IR, ForwardOtherReg'length));
 			
 		IDtoMA.mode <= std_logic_vector(to_unsigned(MEM_NULL, IDtoMA.mode'length));
 		IDtoMA.control <= NO_ACCESS_MEM;
@@ -126,6 +136,39 @@ begin
 		IDtoWB.data.decode <= "ZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ";
 	End Initialize;	
 	
+	-- La lectura conserva las fases originales. El detector indica si Execute
+	-- debe sustituir el valor del banco por el resultado de la ALU anterior.
+	PROCEDURE ReadALUOperand(
+		CONSTANT RegId: IN INTEGER;
+		SIGNAL Operand: OUT std_logic_vector(31 downto 0);
+		SIGNAL ForwardOperand: OUT std_logic;
+		CONSTANT OtherRegId: IN INTEGER := ID_IR) IS
+	BEGIN
+		IdRegID <= std_logic_vector(to_unsigned(RegId, IdRegID'length));
+		SizeRegID <= std_logic_vector(to_unsigned(4, SizeRegID'length));
+		if (Forwarding and Pipelining) then
+			IDtoEX.forward_producer <= (
+				valid => '1',
+				reg_id => IFtoIDLocal.package1(7 downto 0),
+				instruction_id => IDtoWB.id);
+			-- La FPU en curso puede entrar en conflicto con esta instrucción.
+			if (StallSTR = '0' and StallWAWAux = '0' and EXFPUPending = '0') then
+				ForwardOtherReg <= std_logic_vector(to_unsigned(OtherRegId, ForwardOtherReg'length));
+				ForwardConsumer <= '1';
+			end if;
+		end if;
+		EnableRegID <= '1';
+		WAIT FOR 1 ns;
+		EnableRegID <= '0';
+		ForwardConsumer <= '0';
+		WAIT FOR 1 ns;
+		Operand <= DataRegOutID;
+		ForwardOperand <= ForwardRead.valid;
+		if (ForwardRead.valid = '1') then
+			IDtoEX.forward_from <= ForwardRead.instruction_id;
+		end if;
+	END ReadALUOperand;
+
 	VARIABLE First:			BOOLEAN := true;
 	--VARIABLE wasRAW:		BOOLEAN := false;
 	VARIABLE updateCodOp:	BOOLEAN := true;
@@ -579,21 +622,9 @@ begin
 				rfAux := to_integer(unsigned(IFtoIDLocal.package1(15 downto 8)));
 				rgAux := to_integer(unsigned(IFtoIDLocal.package1(23 downto 16)));
 				IDtoWB.mode <= std_logic_vector(to_unsigned(rdAux, IDtoWB.mode'length));
-				IdRegID <= std_logic_vector(to_unsigned(rfAux, IdRegID'length));
-				SizeRegID <= std_logic_vector(to_unsigned(4, SizeRegID'length));
-				EnableRegID <= '1';
-				WAIT FOR 1 ns;
-				EnableRegID <= '0';
-				WAIT FOR 1 ns; 
-				IDtoEX.op1 <= DataRegOutID(31 downto 0); 
+				ReadALUOperand(rfAux, IDtoEX.op1, IDtoEX.forward_op1, rgAux);
 				if (StallRAW = '0') then
-					IdRegID <= std_logic_vector(to_unsigned(rgAux, IdRegID'length));
-					SizeRegID <= std_logic_vector(to_unsigned(4, SizeRegID'length));
-					EnableRegID <= '1';
-					WAIT FOR 1 ns;
-					EnableRegID <= '0';
-					WAIT FOR 1 ns;
-					IDtoEX.op2 <= DataRegOutID(31 downto 0);  
+					ReadALUOperand(rgAux, IDtoEX.op2, IDtoEX.forward_op2, rfAux);
 				end if;
 			WHEN DADDI =>
 				IDtoEX.op <= std_logic_vector(to_unsigned(EX_ADD, IDtoEX.op'length));
@@ -606,13 +637,7 @@ begin
 				IDtoEX.op2(7 downto 0) <= IFtoIDLocal.package1(23 downto 16);
 				IDtoEX.op2(31 downto 8) <= IFtoIDLocal.package2(23 downto 0);
 				IDtoWB.mode <= std_logic_vector(to_unsigned(rdAux, IDtoWB.mode'length));
-				IdRegID <= std_logic_vector(to_unsigned(rfAux, IdRegID'length));
-				SizeRegID <= std_logic_vector(to_unsigned(4, SizeRegID'length));
-				EnableRegID <= '1';
-				WAIT FOR 1 ns;
-				EnableRegID <= '0';
-				WAIT FOR 1 ns;
-				IDtoEX.op1 <= DataRegOutID(31 downto 0);
+				ReadALUOperand(rfAux, IDtoEX.op1, IDtoEX.forward_op1);
 			WHEN DADDU =>
 				IDtoEX.op <= std_logic_vector(to_unsigned(EX_ADD, IDtoEX.op'length));
 				IDtoEX.fp <= '0';
@@ -623,21 +648,9 @@ begin
 				rfAux := to_integer(unsigned(IFtoIDLocal.package1(15 downto 8)));
 				rgAux := to_integer(unsigned(IFtoIDLocal.package1(23 downto 16)));
 				IDtoWB.mode <= std_logic_vector(to_unsigned(rdAux, IDtoWB.mode'length));
-				IdRegID <= std_logic_vector(to_unsigned(rfAux, IdRegID'length));
-				SizeRegID <= std_logic_vector(to_unsigned(4, SizeRegID'length));
-				EnableRegID <= '1';
-				WAIT FOR 1 ns;
-				EnableRegID <= '0';
-				WAIT FOR 1 ns;
-				IDtoEX.op1 <= DataRegOutID(31 downto 0); 
+				ReadALUOperand(rfAux, IDtoEX.op1, IDtoEX.forward_op1, rgAux);
 				if (StallRAW = '0') then
-					IdRegID <= std_logic_vector(to_unsigned(rgAux, IdRegID'length));
-					SizeRegID <= std_logic_vector(to_unsigned(4, SizeRegID'length));
-					EnableRegID <= '1';
-					WAIT FOR 1 ns;
-					EnableRegID <= '0';
-					WAIT FOR 1 ns;
-					IDtoEX.op2 <= DataRegOutID(31 downto 0); 
+					ReadALUOperand(rgAux, IDtoEX.op2, IDtoEX.forward_op2, rfAux);
 				end if;
 			WHEN DADDUI =>
 				IDtoEX.op <= std_logic_vector(to_unsigned(EX_ADD, IDtoEX.op'length));
@@ -650,13 +663,7 @@ begin
 				IDtoEX.op2(7 downto 0) <= IFtoIDLocal.package1(23 downto 16);
 				IDtoEX.op2(31 downto 8) <= IFtoIDLocal.package2(23 downto 0);
 				IDtoWB.mode <= std_logic_vector(to_unsigned(rdAux, IDtoWB.mode'length));
-				IdRegID <= std_logic_vector(to_unsigned(rfAux, IdRegID'length));
-				SizeRegID <= std_logic_vector(to_unsigned(4, SizeRegID'length));
-				EnableRegID <= '1';
-				WAIT FOR 1 ns;
-				EnableRegID <= '0';
-				WAIT FOR 1 ns;
-				IDtoEX.op1 <= DataRegOutID(31 downto 0);
+				ReadALUOperand(rfAux, IDtoEX.op1, IDtoEX.forward_op1);
 			WHEN ADDF =>
 				IDtoEX.op <= std_logic_vector(to_unsigned(EX_ADD, IDtoEX.op'length));
 				IDtoEX.fp <= '1';
@@ -693,21 +700,9 @@ begin
 				rfAux := to_integer(unsigned(IFtoIDLocal.package1(15 downto 8)));
 				rgAux := to_integer(unsigned(IFtoIDLocal.package1(23 downto 16)));
 				IDtoWB.mode <= std_logic_vector(to_unsigned(rdAux, IDtoWB.mode'length));
-				IdRegID <= std_logic_vector(to_unsigned(rfAux, IdRegID'length));
-				SizeRegID <= std_logic_vector(to_unsigned(4, SizeRegID'length));
-				EnableRegID <= '1';
-				WAIT FOR 1 ns;
-				EnableRegID <= '0';
-				WAIT FOR 1 ns;
-				IDtoEX.op1 <= DataRegOutID(31 downto 0);
+				ReadALUOperand(rfAux, IDtoEX.op1, IDtoEX.forward_op1, rgAux);
 				if (StallRAW = '0') then
-					IdRegID <= std_logic_vector(to_unsigned(rgAux, IdRegID'length));
-					SizeRegID <= std_logic_vector(to_unsigned(4, SizeRegID'length));
-					EnableRegID <= '1';
-					WAIT FOR 1 ns;
-					EnableRegID <= '0';
-					WAIT FOR 1 ns;
-					IDtoEX.op2 <= DataRegOutID(31 downto 0); 
+					ReadALUOperand(rgAux, IDtoEX.op2, IDtoEX.forward_op2, rfAux);
 				end if;
 			WHEN DSUBI =>
 				IDtoEX.op <= std_logic_vector(to_unsigned(EX_SUB, IDtoEX.op'length));
@@ -720,13 +715,7 @@ begin
 				IDtoEX.op2(7 downto 0) <= IFtoIDLocal.package1(23 downto 16);
 				IDtoEX.op2(31 downto 8) <= IFtoIDLocal.package2(23 downto 0);
 				IDtoWB.mode <= std_logic_vector(to_unsigned(rdAux, IDtoWB.mode'length));
-				IdRegID <= std_logic_vector(to_unsigned(rfAux, IdRegID'length));
-				SizeRegID <= std_logic_vector(to_unsigned(4, SizeRegID'length));
-				EnableRegID <= '1';
-				WAIT FOR 1 ns;
-				EnableRegID <= '0';
-				WAIT FOR 1 ns;
-				IDtoEX.op1 <= DataRegOutID(31 downto 0);
+				ReadALUOperand(rfAux, IDtoEX.op1, IDtoEX.forward_op1);
 			WHEN DSUBU =>
 				IDtoEX.op <= std_logic_vector(to_unsigned(EX_SUB, IDtoEX.op'length));
 				IDtoEX.fp <= '0';
@@ -737,21 +726,9 @@ begin
 				rfAux := to_integer(unsigned(IFtoIDLocal.package1(15 downto 8)));
 				rgAux := to_integer(unsigned(IFtoIDLocal.package1(23 downto 16)));
 				IDtoWB.mode <= std_logic_vector(to_unsigned(rdAux, IDtoWB.mode'length));
-				IdRegID <= std_logic_vector(to_unsigned(rfAux, IdRegID'length));
-				SizeRegID <= std_logic_vector(to_unsigned(4, SizeRegID'length));
-				EnableRegID <= '1';
-				WAIT FOR 1 ns;
-				EnableRegID <= '0';
-				WAIT FOR 1 ns;
-				IDtoEX.op1 <= DataRegOutID(31 downto 0);
+				ReadALUOperand(rfAux, IDtoEX.op1, IDtoEX.forward_op1, rgAux);
 				if (StallRAW = '0') then
-					IdRegID <= std_logic_vector(to_unsigned(rgAux, IdRegID'length));
-					SizeRegID <= std_logic_vector(to_unsigned(4, SizeRegID'length));
-					EnableRegID <= '1';
-					WAIT FOR 1 ns;
-					EnableRegID <= '0';
-					WAIT FOR 1 ns;
-					IDtoEX.op2 <= DataRegOutID(31 downto 0); 	
+					ReadALUOperand(rgAux, IDtoEX.op2, IDtoEX.forward_op2, rfAux);
 				end if;
 			WHEN SUBF =>
 				IDtoEX.op <= std_logic_vector(to_unsigned(EX_SUB, IDtoEX.op'length));
@@ -789,21 +766,9 @@ begin
 				rfAux := to_integer(unsigned(IFtoIDLocal.package1(15 downto 8)));
 				rgAux := to_integer(unsigned(IFtoIDLocal.package1(23 downto 16)));
 				IDtoWB.mode <= std_logic_vector(to_unsigned(rdAux, IDtoWB.mode'length));
-				IdRegID <= std_logic_vector(to_unsigned(rfAux, IdRegID'length));
-				SizeRegID <= std_logic_vector(to_unsigned(4, SizeRegID'length));
-				EnableRegID <= '1';
-				WAIT FOR 1 ns;
-				EnableRegID <= '0';
-				WAIT FOR 1 ns;
-				IDtoEX.op1 <= DataRegOutID(31 downto 0);
+				ReadALUOperand(rfAux, IDtoEX.op1, IDtoEX.forward_op1, rgAux);
 				if (StallRAW = '0') then
-					IdRegID <= std_logic_vector(to_unsigned(rgAux, IdRegID'length));
-					SizeRegID <= std_logic_vector(to_unsigned(4, SizeRegID'length));
-					EnableRegID <= '1';
-					WAIT FOR 1 ns;
-					EnableRegID <= '0';
-					WAIT FOR 1 ns;
-					IDtoEX.op2 <= DataRegOutID(31 downto 0);
+					ReadALUOperand(rgAux, IDtoEX.op2, IDtoEX.forward_op2, rfAux);
 				end if;
 			WHEN DMULU =>
 		  		IDtoEX.op <= std_logic_vector(to_unsigned(EX_MUL, IDtoEX.op'length));
@@ -815,21 +780,9 @@ begin
 				rfAux := to_integer(unsigned(IFtoIDLocal.package1(15 downto 8)));
 				rgAux := to_integer(unsigned(IFtoIDLocal.package1(23 downto 16)));
 				IDtoWB.mode <= std_logic_vector(to_unsigned(rdAux, IDtoWB.mode'length));
-				IdRegID <= std_logic_vector(to_unsigned(rfAux, IdRegID'length));
-				SizeRegID <= std_logic_vector(to_unsigned(4, SizeRegID'length));
-				EnableRegID <= '1';
-				WAIT FOR 1 ns;
-				EnableRegID <= '0';
-				WAIT FOR 1 ns;
-				IDtoEX.op1 <= DataRegOutID(31 downto 0);
+				ReadALUOperand(rfAux, IDtoEX.op1, IDtoEX.forward_op1, rgAux);
 				if (StallRAW = '0') then
-					IdRegID <= std_logic_vector(to_unsigned(rgAux, IdRegID'length));
-					SizeRegID <= std_logic_vector(to_unsigned(4, SizeRegID'length));
-					EnableRegID <= '1';
-					WAIT FOR 1 ns;
-					EnableRegID <= '0';
-					WAIT FOR 1 ns;
-					IDtoEX.op2 <= DataRegOutID(31 downto 0);  
+					ReadALUOperand(rgAux, IDtoEX.op2, IDtoEX.forward_op2, rfAux);
 				end if;
 			WHEN MULF =>
 				IDtoEX.op <= std_logic_vector(to_unsigned(EX_MUL, IDtoEX.op'length));
@@ -867,21 +820,9 @@ begin
 				rfAux := to_integer(unsigned(IFtoIDLocal.package1(15 downto 8)));
 				rgAux := to_integer(unsigned(IFtoIDLocal.package1(23 downto 16)));
 				IDtoWB.mode <= std_logic_vector(to_unsigned(rdAux, IDtoWB.mode'length));
-				IdRegID <= std_logic_vector(to_unsigned(rfAux, IdRegID'length));
-				SizeRegID <= std_logic_vector(to_unsigned(4, SizeRegID'length));
-				EnableRegID <= '1';
-				WAIT FOR 1 ns;
-				EnableRegID <= '0';
-				WAIT FOR 1 ns;
-				IDtoEX.op1 <= DataRegOutID(31 downto 0);
+				ReadALUOperand(rfAux, IDtoEX.op1, IDtoEX.forward_op1, rgAux);
 				if (StallRAW = '0') then
-					IdRegID <= std_logic_vector(to_unsigned(rgAux, IdRegID'length));
-					SizeRegID <= std_logic_vector(to_unsigned(4, SizeRegID'length));
-					EnableRegID <= '1';
-					WAIT FOR 1 ns;
-					EnableRegID <= '0';
-					WAIT FOR 1 ns;
-					IDtoEX.op2 <= DataRegOutID(31 downto 0);   
+					ReadALUOperand(rgAux, IDtoEX.op2, IDtoEX.forward_op2, rfAux);
 				end if;
 			WHEN DDIVU =>
 				IDtoEX.op <= std_logic_vector(to_unsigned(EX_DIV, IDtoEX.op'length));
@@ -893,21 +834,9 @@ begin
 				rfAux := to_integer(unsigned(IFtoIDLocal.package1(15 downto 8)));
 				rgAux := to_integer(unsigned(IFtoIDLocal.package1(23 downto 16)));
 				IDtoWB.mode <= std_logic_vector(to_unsigned(rdAux, IDtoWB.mode'length));
-				IdRegID <= std_logic_vector(to_unsigned(rfAux, IdRegID'length));
-				SizeRegID <= std_logic_vector(to_unsigned(4, SizeRegID'length));
-				EnableRegID <= '1';
-				WAIT FOR 1 ns;
-				EnableRegID <= '0';
-				WAIT FOR 1 ns;
-				IDtoEX.op1 <= DataRegOutID(31 downto 0);
+				ReadALUOperand(rfAux, IDtoEX.op1, IDtoEX.forward_op1, rgAux);
 				if (StallRAW = '0') then
-					IdRegID <= std_logic_vector(to_unsigned(rgAux, IdRegID'length));
-					SizeRegID <= std_logic_vector(to_unsigned(4, SizeRegID'length));
-					EnableRegID <= '1';
-					WAIT FOR 1 ns;
-					EnableRegID <= '0';
-					WAIT FOR 1 ns;
-					IDtoEX.op2 <= DataRegOutID(31 downto 0);	
+					ReadALUOperand(rgAux, IDtoEX.op2, IDtoEX.forward_op2, rfAux);
 				end if;
 			WHEN DIVF =>
 				IDtoEX.op <= std_logic_vector(to_unsigned(EX_DIV, IDtoEX.op'length));
@@ -945,21 +874,9 @@ begin
 				rfAux := to_integer(unsigned(IFtoIDLocal.package1(15 downto 8)));
 				rgAux := to_integer(unsigned(IFtoIDLocal.package1(23 downto 16)));
 				IDtoWB.mode <= std_logic_vector(to_unsigned(rdAux, IDtoWB.mode'length));
-				IdRegID <= std_logic_vector(to_unsigned(rfAux, IdRegID'length));
-				SizeRegID <= std_logic_vector(to_unsigned(4, SizeRegID'length));
-				EnableRegID <= '1';
-				WAIT FOR 1 ns;
-				EnableRegID <= '0';
-				WAIT FOR 1 ns;
-				IDtoEX.op1 <= DataRegOutID(31 downto 0);
+				ReadALUOperand(rfAux, IDtoEX.op1, IDtoEX.forward_op1, rgAux);
 				if (StallRAW = '0') then
-					IdRegID <= std_logic_vector(to_unsigned(rgAux, IdRegID'length));
-					SizeRegID <= std_logic_vector(to_unsigned(4, SizeRegID'length));
-					EnableRegID <= '1';
-					WAIT FOR 1 ns;
-					EnableRegID <= '0';
-					WAIT FOR 1 ns;
-					IDtoEX.op2 <= DataRegOutID(31 downto 0);
+					ReadALUOperand(rgAux, IDtoEX.op2, IDtoEX.forward_op2, rfAux);
 				end if;
 			WHEN SLTI =>
 				IDtoEX.op <= std_logic_vector(to_unsigned(EX_SLT, IDtoEX.op'length));
@@ -972,13 +889,7 @@ begin
 				IDtoEX.op2(7 downto 0) <= IFtoIDLocal.package1(23 downto 16);
 				IDtoEX.op2(31 downto 8) <= IFtoIDLocal.package2(23 downto 0);
 				IDtoWB.mode <= std_logic_vector(to_unsigned(rdAux, IDtoWB.mode'length));
-				IdRegID <= std_logic_vector(to_unsigned(rfAux, IdRegID'length));
-				SizeRegID <= std_logic_vector(to_unsigned(4, SizeRegID'length));
-				EnableRegID <= '1';
-				WAIT FOR 1 ns;
-				EnableRegID <= '0';
-				WAIT FOR 1 ns;
-				IDtoEX.op1 <= DataRegOutID(31 downto 0);
+				ReadALUOperand(rfAux, IDtoEX.op1, IDtoEX.forward_op1);
 			WHEN LTF =>
 				IDtoEX.op <= std_logic_vector(to_unsigned(EX_LTF, IDtoEX.op'length));
 				IDtoEX.fp <= '1';
@@ -1054,13 +965,7 @@ begin
 				rdAux := to_integer(unsigned(IFtoIDLocal.package1(7 downto 0))) + 1;
 				rfAux := to_integer(unsigned(IFtoIDLocal.package1(15 downto 8)));
 				IDtoWB.mode <= std_logic_vector(to_unsigned(rdAux, IDtoWB.mode'length));
-				IdRegID <= std_logic_vector(to_unsigned(rfAux, IdRegID'length));
-				SizeRegID <= std_logic_vector(to_unsigned(4, SizeRegID'length));
-				EnableRegID <= '1';
-				WAIT FOR 1 ns;
-				EnableRegID <= '0';
-				WAIT FOR 1 ns;
-				IDtoEX.op1 <= DataRegOutID(31 downto 0);
+				ReadALUOperand(rfAux, IDtoEX.op1, IDtoEX.forward_op1);
 			WHEN ANDR =>
 				IDtoEX.op <= std_logic_vector(to_unsigned(EX_AND, IDtoEX.op'length));
 				IDtoEX.fp <= '0';
@@ -1071,21 +976,9 @@ begin
 				rfAux := to_integer(unsigned(IFtoIDLocal.package1(15 downto 8)));
 				rgAux := to_integer(unsigned(IFtoIDLocal.package1(23 downto 16)));
 				IDtoWB.mode <= std_logic_vector(to_unsigned(rdAux, IDtoWB.mode'length));
-				IdRegID <= std_logic_vector(to_unsigned(rfAux, IdRegID'length));
-				SizeRegID <= std_logic_vector(to_unsigned(4, SizeRegID'length));
-				EnableRegID <= '1';
-				WAIT FOR 1 ns;
-				EnableRegID <= '0';
-				WAIT FOR 1 ns;
-				IDtoEX.op1 <= DataRegOutID(31 downto 0); 
+				ReadALUOperand(rfAux, IDtoEX.op1, IDtoEX.forward_op1, rgAux);
 				if (StallRAW = '0') then
-					IdRegID <= std_logic_vector(to_unsigned(rgAux, IdRegID'length));
-					SizeRegID <= std_logic_vector(to_unsigned(4, SizeRegID'length));
-					EnableRegID <= '1';
-					WAIT FOR 1 ns;
-					EnableRegID <= '0';
-					WAIT FOR 1 ns;
-					IDtoEX.op2 <= DataRegOutID(31 downto 0); 
+					ReadALUOperand(rgAux, IDtoEX.op2, IDtoEX.forward_op2, rfAux);
 				end if;
 			WHEN ANDI =>
 				IDtoEX.op <= std_logic_vector(to_unsigned(EX_AND, IDtoEX.op'length));
@@ -1098,13 +991,7 @@ begin
 				IDtoEX.op2(7 downto 0) <= IFtoIDLocal.package1(23 downto 16);
 				IDtoEX.op2(31 downto 8) <= IFtoIDLocal.package2(23 downto 0);
 				IDtoWB.mode <= std_logic_vector(to_unsigned(rdAux, IDtoWB.mode'length));
-				IdRegID <= std_logic_vector(to_unsigned(rfAux, IdRegID'length));
-				SizeRegID <= std_logic_vector(to_unsigned(4, SizeRegID'length));
-				EnableRegID <= '1';
-				WAIT FOR 1 ns;
-				EnableRegID <= '0';
-				WAIT FOR 1 ns;
-				IDtoEX.op1 <= DataRegOutID(31 downto 0); 
+				ReadALUOperand(rfAux, IDtoEX.op1, IDtoEX.forward_op1);
 			WHEN ORR =>
 				IDtoEX.op <= std_logic_vector(to_unsigned(EX_OR, IDtoEX.op'length));
 				IDtoEX.fp <= '0';
@@ -1115,21 +1002,9 @@ begin
 				rfAux := to_integer(unsigned(IFtoIDLocal.package1(15 downto 8)));
 				rgAux := to_integer(unsigned(IFtoIDLocal.package1(23 downto 16)));
 				IDtoWB.mode <= std_logic_vector(to_unsigned(rdAux, IDtoWB.mode'length));
-				IdRegID <= std_logic_vector(to_unsigned(rfAux, IdRegID'length));
-				SizeRegID <= std_logic_vector(to_unsigned(4, SizeRegID'length));
-				EnableRegID <= '1';
-				WAIT FOR 1 ns;
-				EnableRegID <= '0';
-				WAIT FOR 1 ns;
-				IDtoEX.op1 <= DataRegOutID(31 downto 0); 
+				ReadALUOperand(rfAux, IDtoEX.op1, IDtoEX.forward_op1, rgAux);
 				if (StallRAW = '0') then
-					IdRegID <= std_logic_vector(to_unsigned(rgAux, IdRegID'length));
-					SizeRegID <= std_logic_vector(to_unsigned(4, SizeRegID'length));
-					EnableRegID <= '1';
-					WAIT FOR 1 ns;
-					EnableRegID <= '0';
-					WAIT FOR 1 ns;
-					IDtoEX.op2 <= DataRegOutID(31 downto 0); 
+					ReadALUOperand(rgAux, IDtoEX.op2, IDtoEX.forward_op2, rfAux);
 				end if;
 			WHEN ORI =>
 				IDtoEX.op <= std_logic_vector(to_unsigned(EX_OR, IDtoEX.op'length));
@@ -1142,13 +1017,7 @@ begin
 				IDtoEX.op2(7 downto 0) <= IFtoIDLocal.package1(23 downto 16);
 				IDtoEX.op2(31 downto 8) <= IFtoIDLocal.package2(23 downto 0);
 				IDtoWB.mode <= std_logic_vector(to_unsigned(rdAux, IDtoWB.mode'length));
-				IdRegID <= std_logic_vector(to_unsigned(rfAux, IdRegID'length));
-				SizeRegID <= std_logic_vector(to_unsigned(4, SizeRegID'length));
-				EnableRegID <= '1';
-				WAIT FOR 1 ns;
-				EnableRegID <= '0';
-				WAIT FOR 1 ns;
-				IDtoEX.op1 <= DataRegOutID(31 downto 0);
+				ReadALUOperand(rfAux, IDtoEX.op1, IDtoEX.forward_op1);
 			WHEN XORR =>
 				IDtoEX.op <= std_logic_vector(to_unsigned(EX_XOR, IDtoEX.op'length));
 				IDtoEX.fp <= '0';
@@ -1159,21 +1028,9 @@ begin
 				rfAux := to_integer(unsigned(IFtoIDLocal.package1(15 downto 8)));
 				rgAux := to_integer(unsigned(IFtoIDLocal.package1(23 downto 16)));
 				IDtoWB.mode <= std_logic_vector(to_unsigned(rdAux, IDtoWB.mode'length));
-				IdRegID <= std_logic_vector(to_unsigned(rfAux, IdRegID'length));
-				SizeRegID <= std_logic_vector(to_unsigned(4, SizeRegID'length));
-				EnableRegID <= '1';
-				WAIT FOR 1 ns;
-				EnableRegID <= '0';
-				WAIT FOR 1 ns;
-				IDtoEX.op1 <= DataRegOutID(31 downto 0); 
+				ReadALUOperand(rfAux, IDtoEX.op1, IDtoEX.forward_op1, rgAux);
 				if (StallRAW = '0') then
-					IdRegID <= std_logic_vector(to_unsigned(rgAux, IdRegID'length));
-					SizeRegID <= std_logic_vector(to_unsigned(4, SizeRegID'length));
-					EnableRegID <= '1';
-					WAIT FOR 1 ns;
-					EnableRegID <= '0';
-					WAIT FOR 1 ns;
-					IDtoEX.op2 <= DataRegOutID(31 downto 0); 
+					ReadALUOperand(rgAux, IDtoEX.op2, IDtoEX.forward_op2, rfAux);
 				end if;
 			WHEN XORI =>
 				IDtoEX.op <= std_logic_vector(to_unsigned(EX_XOR, IDtoEX.op'length));
@@ -1186,13 +1043,7 @@ begin
 				IDtoEX.op2(7 downto 0) <= IFtoIDLocal.package1(23 downto 16);
 				IDtoEX.op2(31 downto 8) <= IFtoIDLocal.package2(23 downto 0);
 				IDtoWB.mode <= std_logic_vector(to_unsigned(rdAux, IDtoWB.mode'length));
-				IdRegID <= std_logic_vector(to_unsigned(rfAux, IdRegID'length));
-				SizeRegID <= std_logic_vector(to_unsigned(4, SizeRegID'length));
-				EnableRegID <= '1';
-				WAIT FOR 1 ns;
-				EnableRegID <= '0';
-				WAIT FOR 1 ns;
-				IDtoEX.op1 <= DataRegOutID(31 downto 0);
+				ReadALUOperand(rfAux, IDtoEX.op1, IDtoEX.forward_op1);
 			WHEN XNORR =>
 				IDtoEX.op <= std_logic_vector(to_unsigned(EX_XNOR, IDtoEX.op'length));
 				IDtoEX.fp <= '0';
@@ -1203,21 +1054,9 @@ begin
 				rfAux := to_integer(unsigned(IFtoIDLocal.package1(15 downto 8)));
 				rgAux := to_integer(unsigned(IFtoIDLocal.package1(23 downto 16)));
 				IDtoWB.mode <= std_logic_vector(to_unsigned(rdAux, IDtoWB.mode'length));
-				IdRegID <= std_logic_vector(to_unsigned(rfAux, IdRegID'length));
-				SizeRegID <= std_logic_vector(to_unsigned(4, SizeRegID'length));
-				EnableRegID <= '1';
-				WAIT FOR 1 ns;
-				EnableRegID <= '0';
-				WAIT FOR 1 ns;
-				IDtoEX.op1 <= DataRegOutID(31 downto 0); 
+				ReadALUOperand(rfAux, IDtoEX.op1, IDtoEX.forward_op1, rgAux);
 				if (StallRAW = '0') then
-					IdRegID <= std_logic_vector(to_unsigned(rgAux, IdRegID'length));
-					SizeRegID <= std_logic_vector(to_unsigned(4, SizeRegID'length));
-					EnableRegID <= '1';
-					WAIT FOR 1 ns;
-					EnableRegID <= '0';
-					WAIT FOR 1 ns;
-					IDtoEX.op2 <= DataRegOutID(31 downto 0); 
+					ReadALUOperand(rgAux, IDtoEX.op2, IDtoEX.forward_op2, rfAux);
 				end if;
 			WHEN NOTR =>
 				IDtoEX.op <= std_logic_vector(to_unsigned(EX_NOT, IDtoEX.op'length));
@@ -1228,13 +1067,7 @@ begin
 				rdAux := to_integer(unsigned(IFtoIDLocal.package1(7 downto 0))) + 1;
 				rfAux := to_integer(unsigned(IFtoIDLocal.package1(15 downto 8)));
 				IDtoWB.mode <= std_logic_vector(to_unsigned(rdAux, IDtoWB.mode'length));
-				IdRegID <= std_logic_vector(to_unsigned(rfAux, IdRegID'length));
-				SizeRegID <= std_logic_vector(to_unsigned(4, SizeRegID'length));
-				EnableRegID <= '1';
-				WAIT FOR 1 ns;
-				EnableRegID <= '0';
-				WAIT FOR 1 ns;
-				IDtoEX.op1 <= DataRegOutID(31 downto 0);
+				ReadALUOperand(rfAux, IDtoEX.op1, IDtoEX.forward_op1);
 			WHEN DSL =>
 				IDtoEX.op <= std_logic_vector(to_unsigned(EX_DSL, IDtoEX.op'length));
 				IDtoEX.fp <= '0';
@@ -1245,21 +1078,9 @@ begin
 				rfAux := to_integer(unsigned(IFtoIDLocal.package1(15 downto 8)));
 				rgAux := to_integer(unsigned(IFtoIDLocal.package1(23 downto 16)));
 				IDtoWB.mode <= std_logic_vector(to_unsigned(rdAux, IDtoWB.mode'length));
-				IdRegID <= std_logic_vector(to_unsigned(rfAux, IdRegID'length));
-				SizeRegID <= std_logic_vector(to_unsigned(4, SizeRegID'length));
-				EnableRegID <= '1';
-				WAIT FOR 1 ns;
-				EnableRegID <= '0';
-				WAIT FOR 1 ns;
-				IDtoEX.op1 <= DataRegOutID(31 downto 0); 
+				ReadALUOperand(rfAux, IDtoEX.op1, IDtoEX.forward_op1, rgAux);
 				if (StallRAW = '0') then
-					IdRegID <= std_logic_vector(to_unsigned(rgAux, IdRegID'length));
-					SizeRegID <= std_logic_vector(to_unsigned(4, SizeRegID'length));
-					EnableRegID <= '1';
-					WAIT FOR 1 ns;
-					EnableRegID <= '0';
-					WAIT FOR 1 ns;
-					IDtoEX.op2 <= DataRegOutID(31 downto 0);  
+					ReadALUOperand(rgAux, IDtoEX.op2, IDtoEX.forward_op2, rfAux);
 				end if;
 			WHEN DSLI =>
 				IDtoEX.op <= std_logic_vector(to_unsigned(EX_DSL, IDtoEX.op'length));
@@ -1272,13 +1093,7 @@ begin
 				IDtoEX.op2(7 downto 0) <= IFtoIDLocal.package1(23 downto 16);
 				IDtoEX.op2(31 downto 8) <= IFtoIDLocal.package2(23 downto 0);
 				IDtoWB.mode <= std_logic_vector(to_unsigned(rdAux, IDtoWB.mode'length));
-				IdRegID <= std_logic_vector(to_unsigned(rfAux, IdRegID'length));
-				SizeRegID <= std_logic_vector(to_unsigned(4, SizeRegID'length));
-				EnableRegID <= '1';
-				WAIT FOR 1 ns;
-				EnableRegID <= '0';
-				WAIT FOR 1 ns;
-				IDtoEX.op1 <= DataRegOutID(31 downto 0);
+				ReadALUOperand(rfAux, IDtoEX.op1, IDtoEX.forward_op1);
 			WHEN DSR =>
 				IDtoEX.op <= std_logic_vector(to_unsigned(EX_DSR, IDtoEX.op'length));
 				IDtoEX.fp <= '0';
@@ -1289,21 +1104,9 @@ begin
 				rfAux := to_integer(unsigned(IFtoIDLocal.package1(15 downto 8)));
 				rgAux := to_integer(unsigned(IFtoIDLocal.package1(23 downto 16)));
 				IDtoWB.mode <= std_logic_vector(to_unsigned(rdAux, IDtoWB.mode'length));
-				IdRegID <= std_logic_vector(to_unsigned(rfAux, IdRegID'length));
-				SizeRegID <= std_logic_vector(to_unsigned(4, SizeRegID'length));
-				EnableRegID <= '1';
-				WAIT FOR 1 ns;
-				EnableRegID <= '0';
-				WAIT FOR 1 ns;
-				IDtoEX.op1 <= DataRegOutID(31 downto 0); 
+				ReadALUOperand(rfAux, IDtoEX.op1, IDtoEX.forward_op1, rgAux);
 				if (StallRAW = '0') then
-					IdRegID <= std_logic_vector(to_unsigned(rgAux, IdRegID'length));
-					SizeRegID <= std_logic_vector(to_unsigned(4, SizeRegID'length));
-					EnableRegID <= '1';
-					WAIT FOR 1 ns;
-					EnableRegID <= '0';
-					WAIT FOR 1 ns;
-					IDtoEX.op2 <= DataRegOutID(31 downto 0);  
+					ReadALUOperand(rgAux, IDtoEX.op2, IDtoEX.forward_op2, rfAux);
 				end if;
 			WHEN DSRI =>
 				IDtoEX.op <= std_logic_vector(to_unsigned(EX_DSR, IDtoEX.op'length));
@@ -1316,13 +1119,7 @@ begin
 				IDtoEX.op2(7 downto 0) <= IFtoIDLocal.package1(23 downto 16);
 				IDtoEX.op2(31 downto 8) <= IFtoIDLocal.package2(23 downto 0);
 				IDtoWB.mode <= std_logic_vector(to_unsigned(rdAux, IDtoWB.mode'length));
-				IdRegID <= std_logic_vector(to_unsigned(rfAux, IdRegID'length));
-				SizeRegID <= std_logic_vector(to_unsigned(4, SizeRegID'length));
-				EnableRegID <= '1';
-				WAIT FOR 1 ns;
-				EnableRegID <= '0';
-				WAIT FOR 1 ns;
-				IDtoEX.op1 <= DataRegOutID(31 downto 0);
+				ReadALUOperand(rfAux, IDtoEX.op1, IDtoEX.forward_op1);
 			WHEN DSLS =>
 				IDtoEX.op <= std_logic_vector(to_unsigned(EX_DSL, IDtoEX.op'length));
 				IDtoEX.fp <= '0';
@@ -1333,21 +1130,9 @@ begin
 				rfAux := to_integer(unsigned(IFtoIDLocal.package1(15 downto 8)));
 				rgAux := to_integer(unsigned(IFtoIDLocal.package1(23 downto 16)));
 				IDtoWB.mode <= std_logic_vector(to_unsigned(rdAux, IDtoWB.mode'length));
-				IdRegID <= std_logic_vector(to_unsigned(rfAux, IdRegID'length));
-				SizeRegID <= std_logic_vector(to_unsigned(4, SizeRegID'length));
-				EnableRegID <= '1';
-				WAIT FOR 1 ns;
-				EnableRegID <= '0';
-				WAIT FOR 1 ns;
-				IDtoEX.op1 <= DataRegOutID(31 downto 0); 
+				ReadALUOperand(rfAux, IDtoEX.op1, IDtoEX.forward_op1, rgAux);
 				if (StallRAW = '0') then
-					IdRegID <= std_logic_vector(to_unsigned(rgAux, IdRegID'length));
-					SizeRegID <= std_logic_vector(to_unsigned(4, SizeRegID'length));
-					EnableRegID <= '1';
-					WAIT FOR 1 ns;
-					EnableRegID <= '0';
-					WAIT FOR 1 ns;
-					IDtoEX.op2 <= DataRegOutID(31 downto 0);  
+					ReadALUOperand(rgAux, IDtoEX.op2, IDtoEX.forward_op2, rfAux);
 				end if;
 			WHEN DSLSI =>
 				IDtoEX.op <= std_logic_vector(to_unsigned(EX_DSL, IDtoEX.op'length));
@@ -1360,13 +1145,7 @@ begin
 				IDtoEX.op2(7 downto 0) <= IFtoIDLocal.package1(23 downto 16);
 				IDtoEX.op2(31 downto 8) <= IFtoIDLocal.package2(23 downto 0);
 				IDtoWB.mode <= std_logic_vector(to_unsigned(rdAux, IDtoWB.mode'length));
-				IdRegID <= std_logic_vector(to_unsigned(rfAux, IdRegID'length));
-				SizeRegID <= std_logic_vector(to_unsigned(4, SizeRegID'length));
-				EnableRegID <= '1';
-				WAIT FOR 1 ns;
-				EnableRegID <= '0';
-				WAIT FOR 1 ns;
-				IDtoEX.op1 <= DataRegOutID(31 downto 0);
+				ReadALUOperand(rfAux, IDtoEX.op1, IDtoEX.forward_op1);
 			WHEN DSRS =>
 				IDtoEX.op <= std_logic_vector(to_unsigned(EX_DSR, IDtoEX.op'length));
 				IDtoEX.fp <= '0';
@@ -1377,21 +1156,9 @@ begin
 				rfAux := to_integer(unsigned(IFtoIDLocal.package1(15 downto 8)));
 				rgAux := to_integer(unsigned(IFtoIDLocal.package1(23 downto 16)));
 				IDtoWB.mode <= std_logic_vector(to_unsigned(rdAux, IDtoWB.mode'length));
-				IdRegID <= std_logic_vector(to_unsigned(rfAux, IdRegID'length));
-				SizeRegID <= std_logic_vector(to_unsigned(4, SizeRegID'length));
-				EnableRegID <= '1';
-				WAIT FOR 1 ns;
-				EnableRegID <= '0';
-				WAIT FOR 1 ns;
-				IDtoEX.op1 <= DataRegOutID(31 downto 0); 
+				ReadALUOperand(rfAux, IDtoEX.op1, IDtoEX.forward_op1, rgAux);
 				if (StallRAW = '0') then
-					IdRegID <= std_logic_vector(to_unsigned(rgAux, IdRegID'length));
-					SizeRegID <= std_logic_vector(to_unsigned(4, SizeRegID'length));
-					EnableRegID <= '1';
-					WAIT FOR 1 ns;
-					EnableRegID <= '0';
-					WAIT FOR 1 ns;
-					IDtoEX.op2 <= DataRegOutID(31 downto 0);  
+					ReadALUOperand(rgAux, IDtoEX.op2, IDtoEX.forward_op2, rfAux);
 				end if;
 			WHEN DSRSI =>
 				IDtoEX.op <= std_logic_vector(to_unsigned(EX_DSR, IDtoEX.op'length));
@@ -1404,13 +1171,7 @@ begin
 				IDtoEX.op2(7 downto 0) <= IFtoIDLocal.package1(23 downto 16);
 				IDtoEX.op2(31 downto 8) <= IFtoIDLocal.package2(23 downto 0);
 				IDtoWB.mode <= std_logic_vector(to_unsigned(rdAux, IDtoWB.mode'length));
-				IdRegID <= std_logic_vector(to_unsigned(rfAux, IdRegID'length));
-				SizeRegID <= std_logic_vector(to_unsigned(4, SizeRegID'length));
-				EnableRegID <= '1';
-				WAIT FOR 1 ns;
-				EnableRegID <= '0';
-				WAIT FOR 1 ns;
-				IDtoEX.op1 <= DataRegOutID(31 downto 0);
+				ReadALUOperand(rfAux, IDtoEX.op1, IDtoEX.forward_op1);
 			WHEN JMP =>	
 				DataRegInID(31 downto 16) <= "ZZZZZZZZZZZZZZZZ";
 				DataRegInID(15 downto 0) <= IFtoIDLocal.package1(15 downto 0);
