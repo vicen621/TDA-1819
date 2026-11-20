@@ -1,37 +1,37 @@
 
 -- Entidad "execute":
--- Descripción: Aquí se define el administrador para la etapa de ejecución de la segmentación 
--- del procesador, el cual recibe de la etapa de decodificación	toda la información necesaria 
--- para poder trabajar: el tipo de operación (nula, suma, resta, and, or, salto condicional, 
--- etc.) a realizar, el tipo de operandos (entero o punto flotante, con o sin signo) y los 
--- operandos propiamente dichos. Luego, si correspondiera, habilita en función del tipo de 
+-- Descripción: Aquí se define el administrador para la etapa de ejecución de la segmentación
+-- del procesador, el cual recibe de la etapa de decodificación	toda la información necesaria
+-- para poder trabajar: el tipo de operación (nula, suma, resta, and, or, salto condicional,
+-- etc.) a realizar, el tipo de operandos (entero o punto flotante, con o sin signo) y los
+-- operandos propiamente dichos. Luego, si correspondiera, habilita en función del tipo de
 -- operandos la unidad de ejecución más adecuada: ALU (unidad aritmético-lógica) para operandos
--- enteros o FPU (unidad de punto flotante) para operandos en punto flotante, y le proporciona 
--- exactamente la misma información recibida de la etapa "decode" para que pueda realizar la 
--- operación aritmético-lógica requerida. Finalmente, si es necesario envía el resultado de la 
--- unidad habilitada al banco de registros internos para la segmentación a fin de que éste se 
--- encargue de transmitirlo a la etapa "writeback", la cual a su vez se ocupará de escribirlo 
--- en el banco de registros del procesador. Cabe agregar que, mientras la ejecución de una 
--- operación en la ALU requiere un único ciclo de reloj para completarse, en la FPU, al ser más 
--- compleja, necesita cuatro ciclos para ser llevada a cabo sin importar su naturaleza (suma, 
+-- enteros o FPU (unidad de punto flotante) para operandos en punto flotante, y le proporciona
+-- exactamente la misma información recibida de la etapa "decode" para que pueda realizar la
+-- operación aritmético-lógica requerida. Finalmente, si es necesario envía el resultado de la
+-- unidad habilitada al banco de registros internos para la segmentación a fin de que éste se
+-- encargue de transmitirlo a la etapa "writeback", la cual a su vez se ocupará de escribirlo
+-- en el banco de registros del procesador. Cabe agregar que, mientras la ejecución de una
+-- operación en la ALU requiere un único ciclo de reloj para completarse, en la FPU, al ser más
+-- compleja, necesita cuatro ciclos para ser llevada a cabo sin importar su naturaleza (suma,
 -- resta, multiplicación, división, etc.).
 -- Procesos:
 -- Main: En primer lugar, recibe la señal del administrador de la CPU para comenzar la
 -- etapa de ejecución de una nueva instrucción. Luego, en la primera mitad del ciclo de
 -- reloj comprueba si existen actualmente atascos de algún tipo en el cauce, deteniendo
--- temporalmente la ejecución en caso afirmativo. Finalmente, en la segunda mitad del ciclo 
--- lleva a cabo la ejecución propiamente dicha, habilitando la unidad de ejecución que 
--- corresponda en función del tipo de los operandos (o no habilitando ninguna en caso de que 
--- la instrucción no requiera la ejecución de una operación aritmético-lógica) y 
--- proporcionándole la información recibida de la etapa "decode" para que pueda trabajar 
--- correctamente, y luego obteniendo el resultado devuelto por la misma para enviárselo al 
+-- temporalmente la ejecución en caso afirmativo. Finalmente, en la segunda mitad del ciclo
+-- lleva a cabo la ejecución propiamente dicha, habilitando la unidad de ejecución que
+-- corresponda en función del tipo de los operandos (o no habilitando ninguna en caso de que
+-- la instrucción no requiera la ejecución de una operación aritmético-lógica) y
+-- proporcionándole la información recibida de la etapa "decode" para que pueda trabajar
+-- correctamente, y luego obteniendo el resultado devuelto por la misma para enviárselo al
 -- banco de registros internos para la segmentación.
 -- Procedimientos y funciones:
--- InitializeIDtoEX(): Configura y carga toda la información inicial a enviar a las dos unidades 
--- disponibles, antes de que una de ellas sea modificada durante la ejecución de esta etapa 
+-- InitializeIDtoEX(): Configura y carga toda la información inicial a enviar a las dos unidades
+-- disponibles, antes de que una de ellas sea modificada durante la ejecución de esta etapa
 -- del pipeline: operaciones nulas, operandos y direcciones vacías, etc.
--- InitializeAllIDtoEX(): Este procedimiento se invoca una única vez durante la primera 
--- ejecución de este administrador para asignar valores iniciales válidos y nulos a todas sus 
+-- InitializeAllIDtoEX(): Este procedimiento se invoca una única vez durante la primera
+-- ejecución de este administrador para asignar valores iniciales válidos y nulos a todas sus
 -- señales internas auxiliares encargadas de almacenar información recibida de la etapa de
 -- decodificación a fin de que no ocurra ningún inconveniente durante la ejecución de la
 -- simulación por intentar leer señales que aún no hayan sido previamente inicializadas.
@@ -46,7 +46,7 @@ LIBRARY IEEE;
 
 USE std.textio.all;
 use ieee.NUMERIC_STD.all;
-USE IEEE.std_logic_1164.all; 
+USE IEEE.std_logic_1164.all;
 
 library ieee_proposed;
 use ieee_proposed.float_pkg.all;
@@ -55,8 +55,8 @@ use ieee_proposed.float_pkg.all;
 
 
 entity execute is
-	
-	port ( 
+
+	port (
 		BranchEXALUtoSM		: out 	state_branch;
 		DataRegInEXALU		: out 	std_logic_vector(31 downto 0);
 		DataRegInEXFPU		: out 	std_logic_vector(31 downto 0);
@@ -89,21 +89,21 @@ architecture EXECUTE_ARCHITECTURE of execute is
 
 	-- Component declaration of the tested unit
 	component execute_alu
-		port ( 
+		port (
 			BranchEXALUtoSM		: out state_branch;
 			DataRegInEXALU		: out std_logic_vector(31 downto 0);
 			EnableRegEXALURd	: out std_logic;
 			EnableRegEXALUWr	: out std_logic;
-			EnableRegEXALUIP	: out std_logic; 
+			EnableRegEXALUIP	: out std_logic;
 			DoneEXALU			: out std_logic;
 			DataEXALUtoWB		: out std_logic_vector(31 downto 0);
 			IDtoEXALU			: in  execute_record;
 			DataRegOutEXALU		: in  std_logic_vector(31 downto 0);
 			EnableEXALU			: in  std_logic);
 	end component;
-	
+
 	component execute_fpu
-		port ( 
+		port (
 			DataRegInEXFPU		: out std_logic_vector(31 downto 0);
 			EnableRegEXFPURd	: out std_logic;
 			EnableRegEXFPUWr	: out std_logic;
@@ -113,27 +113,27 @@ architecture EXECUTE_ARCHITECTURE of execute is
 			DataRegOutEXFPU		: in  std_logic_vector(31 downto 0);
 			EnableEXFPU			: in  std_logic);
 	end component;
-	
-	
+
+
 	FOR UUT1: execute_alu USE ENTITY WORK.execute_alu(execute_alu_architecture);
 	FOR UUT2: execute_fpu USE ENTITY WORK.execute_fpu(execute_fpu_architecture);
-		
-	
-	-- Add your code here ...	
+
+
+	-- Add your code here ...
 	SIGNAL IDtoEXFPURecords:	execute_records(3 downto 0);
 	SIGNAL DataEXALUtoWB: 		std_logic_vector(31 downto 0);
 	SIGNAL DataEXFPUtoWB: 		std_logic_vector(31 downto 0);
 	SIGNAL IDtoEXALU: 			execute_record;
-	SIGNAL IDtoEXFPU: 			execute_record;	
+	SIGNAL IDtoEXFPU: 			execute_record;
 	SIGNAL DoneEXALU:			std_logic;
 	SIGNAL DoneEXFPU:			std_logic;
-	
-	
+
+
 begin
-	
-	
+
+
 	-- Unit Under Test port map
-		
+
 	UUT1: execute_alu
 		port map (
 			BranchEXALUtoSM		=> BranchEXALUtoSM,
@@ -146,7 +146,7 @@ begin
 			IDtoEXALU			=> IDtoEXALU,
 			DataRegOutEXALU		=> DataRegOutEXALU,
 			EnableEXALU			=> EnableEXALU);
-	
+
 	UUT2: execute_fpu
 		port map (
 			DataRegInEXFPU		=> DataRegInEXFPU,
@@ -157,40 +157,42 @@ begin
 			IDtoEXFPU			=> IDtoEXFPU,
 			DataRegOutEXFPU		=> DataRegOutEXFPU,
 			EnableEXFPU			=> EnableEXFPU);
-	
-			
+
+
 	-- Add your stimulus here ...
-	
-	Main: PROCESS 
-	
+
+	Main: PROCESS
+
 	PROCEDURE InitializeIDtoEX IS
-	
-	BEGIN 
-		IDtoEXALU.op <= std_logic_vector(to_unsigned(EX_NULL, IDtoEXALU.op'length)); 
+
+	BEGIN
+	    ForwardProducer <= NO_FORWARD_PRODUCER;
+		IDtoEXALU.op <= std_logic_vector(to_unsigned(EX_NULL, IDtoEXALU.op'length));
 		IDtoEXALU.fp <= 'Z';
 		IDtoEXALU.sign <= 'Z';
 		IDtoEXALU.op1 <= "ZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ";
 		IDtoEXALU.op2 <= "ZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ";
 		IDtoEXALU.address <= "ZZZZZZZZZZZZZZZZ";
-		IDtoEXFPURecords(3).op <= std_logic_vector(to_unsigned(EX_NULL, IDtoEXFPURecords(3).op'length)); 
+		IDtoEXFPURecords(3).op <= std_logic_vector(to_unsigned(EX_NULL, IDtoEXFPURecords(3).op'length));
 		IDtoEXFPURecords(3).fp <= 'Z';
 		IDtoEXFPURecords(3).sign <= 'Z';
 		IDtoEXFPURecords(3).op1 <= "ZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ";
 		IDtoEXFPURecords(3).op2 <= "ZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ";
 		IDtoEXFPURecords(3).address <= "ZZZZZZZZZZZZZZZZ";
 	End InitializeIDtoEX;
-	
+
 	PROCEDURE InitializeAllIDtoEX IS
-	
-	BEGIN 
-		IDtoEXALU.op <= std_logic_vector(to_unsigned(EX_NULL, IDtoEXALU.op'length)); 
+
+	BEGIN
+	    ForwardProducer <= NO_FORWARD_PRODUCER;
+		IDtoEXALU.op <= std_logic_vector(to_unsigned(EX_NULL, IDtoEXALU.op'length));
 		IDtoEXALU.fp <= 'Z';
 		IDtoEXALU.sign <= 'Z';
 		IDtoEXALU.op1 <= "ZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ";
 		IDtoEXALU.op2 <= "ZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ";
-		IDtoEXALU.address <= "ZZZZZZZZZZZZZZZZ";	
+		IDtoEXALU.address <= "ZZZZZZZZZZZZZZZZ";
 		for i in IDtoEXFPURecords'length-1 downto 0 loop
-			IDtoEXFPURecords(i).op <= std_logic_vector(to_unsigned(EX_NULL, IDtoEXFPURecords(3).op'length)); 
+			IDtoEXFPURecords(i).op <= std_logic_vector(to_unsigned(EX_NULL, IDtoEXFPURecords(3).op'length));
 			IDtoEXFPURecords(i).fp <= 'Z';
 			IDtoEXFPURecords(i).sign <= 'Z';
 			IDtoEXFPURecords(i).op1 <= "ZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ";
@@ -198,27 +200,26 @@ begin
 			IDtoEXFPURecords(i).address <= "ZZZZZZZZZZZZZZZZ";
 		end loop;
 	End InitializeAllIDtoEX;
-	
+
 	VARIABLE First: BOOLEAN := true;
 	VARIABLE Empty: STD_LOGIC;
 	VARIABLE ALUInput: execute_record;
 	VARIABLE LastALUProducer: forward_producer_record := NO_FORWARD_PRODUCER;
 	VARIABLE LastALUResult: std_logic_vector(31 downto 0);
-	VARIABLE Op: INTEGER;			 
+	VARIABLE Op: INTEGER;
 	VARIABLE Fp: STD_LOGIC;
 	VARIABLE wasSTR: BOOLEAN := false;
 	VARIABLE wasSTRW: BOOLEAN := false;
 	VARIABLE varEXFPUPending: BOOLEAN := false;
-	
-	BEGIN 
+
+	BEGIN
 		if (First) then
 			First := false;
 			EXFPUPending <= '0';
 			EnableCheckSTRM <= '0';
-			EnableDecFPWrPend <= '0'; 
-			EnableEXALU <= '0'; 
+			EnableDecFPWrPend <= '0';
+			EnableEXALU <= '0';
 			EnableEXFPU <= '0';
-			ForwardProducer <= NO_FORWARD_PRODUCER;
 			InitializeAllIDtoEX;
 			WAIT FOR 1 ns;
 		end if;
@@ -238,7 +239,7 @@ begin
 			end if;
 		elsif (StallWAWAux = '1') then
 			--for i in IDtoEXFPURecords'length-1 downto 2 loop
-				--IDtoEXFPURecords(i) <= IDtoEXFPURecords(i-1);
+			--IDtoEXFPURecords(i) <= IDtoEXFPURecords(i-1);
 			--end loop;
 			--IDtoEXFPURecords(3) <= IDtoEXFPURecords(2);
 			--InitializeIDtoEX;
@@ -254,16 +255,15 @@ begin
 				WAIT UNTIL rising_edge(EnableEX);
 			end if;
 		end if;
-		EnableEXALU <= '1'; 
+		EnableEXALU <= '1';
 		EnableEXFPU <= '1';
 		Op := to_integer(unsigned(IDtoEXFPURecords(1).op));
 		if (Op /= EX_NULL) then
 			EnableDecFPWrPend <= '1';
 			WAIT FOR 1 ns;
 			EnableDecFPWrPend <= '0';
-		end if;	
+		end if;
 		WAIT UNTIL falling_edge(EnableEX);
-		ForwardProducer <= NO_FORWARD_PRODUCER;
 		InitializeIDtoEX;
 		Empty := IDtoEX.empty;
 		if (Empty = '0') then
@@ -271,12 +271,20 @@ begin
 			if (not wasSTRW) then
 				if ((Fp = '0') or (Fp = 'Z')) then
 					if (StallSTR = '0') then
+					    -- Forward operand
 						ALUInput := IDtoEX;
+						-- Si cualquiera de los dos operandos necestia forward entra en el if
 						if (ALUInput.forward_op1 = '1' or ALUInput.forward_op2 = '1') then
+						    -- Este assert verifica que no haya ningun error
+							-- si este assert falla es porque se pidio un forward que no se puede resolver
+							-- es decir, falló algo que no tenía que fallar.
+							-- Si se llegó a este punto, el forward se tiene que poder hacer por todas las verificaciones previas realizadas.
 							assert LastALUProducer.valid = '1'
 								and LastALUProducer.instruction_id = ALUInput.forward_from
-								report "Forwarding ALU-ALU: resultado del productor no disponible"
-								severity FAILURE;
+								report "Forwarding ALU-ALU: resultado del productor no disponible. Forward mal hecho."
+								severity FAILURE; -- si falla se detiene la ejecución
+
+							-- Se hace el forward como tal
 							if (ALUInput.forward_op1 = '1') then
 								ALUInput.op1 := LastALUResult;
 							end if;
@@ -284,6 +292,7 @@ begin
 								ALUInput.op2 := LastALUResult;
 							end if;
 						end if;
+
 						IDtoEXALU <= ALUInput;
 						-- Decode identifica esta productora en el mismo ciclo.
 						ForwardProducer <= ALUInput.forward_producer;
@@ -348,11 +357,6 @@ begin
 			end if;
 		end if;
 	END PROCESS Main;
-	
-	
+
+
 end EXECUTE_ARCHITECTURE;
-
-
-
-
-
