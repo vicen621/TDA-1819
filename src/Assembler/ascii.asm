@@ -15,4 +15,3 @@ no_car:	daddi r1, r1, 1
 		bne r5, r3, loop
 		sw r4, cant(r0)
 		halt
-	

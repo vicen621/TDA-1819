@@ -10,3 +10,4 @@ SALIDA:	.word	0
 		notr r7, r6
 		sw r7, SALIDA(r0)
 		halt
+	
