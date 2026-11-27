@@ -40,10 +40,10 @@ use std.TEXTIO.all;
 entity usuario is
 	-- Generic declarations of the tested unit
 	generic (
-		ProgName	: STRING := "nop_0.asm";
+		ProgName	: STRING := "alu_4a_stall.asm";
 		Pipelining	: BOOLEAN := true;
 		Cores 		: INTEGER := 1;
-		Forwarding		: BOOLEAN := false);  	
+		Forwarding	: BOOLEAN := true);  	
 			
 end usuario;
 
